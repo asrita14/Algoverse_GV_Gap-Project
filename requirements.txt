@@ -1,0 +1,7 @@
+datasets>=2.20
+pandas>=2.2
+python-dotenv>=1.0
+tqdm>=4.66
+matplotlib>=3.8
+requests>=2.32
+openai>=1.30
