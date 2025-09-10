@@ -1,62 +1,68 @@
-#!/usr/bin/env python3
-import argparse, json, os, random, re
+import json
+import requests
+import random
 from pathlib import Path
-from typing import Iterable, Dict, Any
-from datasets import load_dataset
 
-RNG = random.Random()
-GSM_FINAL_RE = re.compile(r"####\s*([^\n]+)")
+def download_gsm8k_sample():
+    """Download a small sample of GSM8K for testing"""
+    Path("data/raw").mkdir(parents=True, exist_ok=True)
+    print("Downloading GSM8K sample...")
 
-def norm(s: str) -> str: return " ".join((s or "").strip().split())
+    sample_problems = [
+        {
+            "question": "Natalia sold clips to 48 of her friends in April, and then she sold half as many clips in May. How many clips did Natalia sell altogether in April and May?",
+            "answer": "Natalia sold 48/2 = 24 clips in May.\nNatalia sold 48+24 = 72 clips altogether in April and May.\n#### 72"
+        },
+        {
+            "question": "Weng earns $12 an hour for babysitting. Yesterday, she just did 50 minutes of babysitting. How much did she earn?",
+            "answer": "Weng earns 12/60 = $0.2 per minute.\nWorking 50 minutes, she earned 0.2 x 50 = $10.\n#### 10"
+        },
+        {
+            "question": "Betty is saving money for a new wallet which costs $100. Betty has only half of the money she needs. Her parents decided to give her $15 for that purpose, and her grandparents twice as much as her parents. How much more money does Betty need to buy the wallet?",
+            "answer": "In the beginning, Betty has only 100/2 = $50.\nBetty's grandparents gave her 15 * 2 = $30.\nThis means, Betty needs 100 - 50 - 15 - 30 = $5 more.\n#### 5"
+        }
+    ]
 
-def sample_indices(n_total: int, n_want: int, seed: int):
-    idxs = list(range(n_total)); RNG.seed(seed); RNG.shuffle(idxs)
-    return idxs[:min(n_want, n_total)]
+    with open("data/raw/gsm8k_sample.json", "w") as f:
+        json.dump(sample_problems, f, indent=2)
 
-def iter_gsm8k(split: str, n: int, seed: int) -> Iterable[Dict[str, Any]]:
-    ds = load_dataset("gsm8k", "main", split="train" if split!="test" else "test")
-    for i in sample_indices(len(ds), n, seed):
-        ex = ds[i]; q = norm(ex["question"]); raw = ex["answer"] or ""
-        m = GSM_FINAL_RE.search(raw); final = m.group(1).strip() if m else raw.strip()
-        yield {"id": f"gsm8k/{split}/{i}","domain":"math","dataset":"GSM8K","split":split,
-               "question": q,"reference_answer": final,"gold_cot": raw}
+    print(f"Downloaded {len(sample_problems)} sample problems to data/raw/gsm8k_sample.json")
+    return sample_problems
 
-def iter_mbpp(split: str, n: int, seed: int):
-    ds = load_dataset("mbpp", split="train")
-    for i in sample_indices(len(ds), n, seed):
-        ex = ds[i]; q = norm(ex.get("text", ex.get("prompt",""))); code = ex.get("code","")
-        yield {"id": f"mbpp/{split}/{i}","domain":"code","dataset":"MBPP","split":split,
-               "question": q,"reference_answer": code,"gold_cot": None}
+def convert_to_standard_format(problems, dataset_name="GSM8K", split="pilot"):
+    """Convert to the standard JSONL format from your roadmap"""
+    Path("data/processed/gsm8k").mkdir(parents=True, exist_ok=True)
+    converted = []
 
-def iter_truthfulqa(split: str, n: int, seed: int):
-    ds = load_dataset("truthful_qa", "generation", split="validation")
-    for i in sample_indices(len(ds), n, seed):
-        ex = ds[i]; q = norm(ex["question"])
-        best = ex.get("best_answer") or (ex.get("correct_answers") or [""])[0]
-        yield {"id": f"truthfulqa/{split}/{i}","domain":"factual","dataset":"TruthfulQA","split":split,
-               "question": q,"reference_answer": norm(best),"gold_cot": None}
+    for i, problem in enumerate(problems):
+        answer_text = problem["answer"]
+        if "####" in answer_text:
+            final_answer = answer_text.split("####")[-1].strip()
+        else:
+            final_answer = "Unknown"
 
-LOADERS = {"gsm8k":iter_gsm8k,"mbpp":iter_mbpp,"truthfulqa":iter_truthfulqa}
-REQ = ["id","domain","dataset","split","question","reference_answer"]
+        record = {
+            "id": f"gsm8k/{split}/{i}",
+            "domain": "math",
+            "dataset": dataset_name,
+            "split": split,
+            "question": problem["question"],
+            "reference_answer": final_answer,
+            "gold_cot": answer_text.split("####")[0].strip() if "####" in answer_text else answer_text,
+            "metadata": {"source": "sample", "difficulty": "easy"}
+        }
+        converted.append(record)
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--dataset", required=True, choices=LOADERS.keys())
-    ap.add_argument("--split", required=True, help="pilot|dev|main")
-    ap.add_argument("--n", type=int, default=200)
-    ap.add_argument("--seed", type=int, default=7)
-    ap.add_argument("--out", required=True)
-    args = ap.parse_args()
+    output_file = f"data/processed/gsm8k/{split}.jsonl"
+    with open(output_file, "w") as f:
+        for record in converted:
+            f.write(json.dumps(record) + "\n")
 
-    Path(os.path.dirname(args.out)).mkdir(parents=True, exist_ok=True)
-    it = LOADERS[args.dataset](args.split, args.n, args.seed)
+    print(f"Converted {len(converted)} problems to {output_file}")
+    return converted
 
-    n_written = 0
-    with open(args.out, "w", encoding="utf-8") as f:
-        for rec in it:
-            for k in REQ:
-                if k not in rec: raise ValueError(f"missing key {k} in {rec}")
-            f.write(json.dumps(rec, ensure_ascii=False)+"\n"); n_written += 1
-    print(f"Wrote {n_written} → {args.out}")
-
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    problems = download_gsm8k_sample()
+    converted = convert_to_standard_format(problems)
+    print("\nFirst converted record:")
+    print(json.dumps(converted[0], indent=2))
