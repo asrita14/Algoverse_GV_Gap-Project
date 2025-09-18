@@ -1,0 +1,27 @@
+{
+  // Use the repo's virtualenv by default
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+
+  // Auto-activate venv in the VS Code terminal
+  "python.terminal.activateEnvironment": true,
+
+  // Pass variables from your .env to debug/run sessions
+  "python.envFile": "${workspaceFolder}/.env",
+
+  // Quality-of-life
+  "editor.formatOnSave": true,
+  "files.exclude": {
+    "**/__pycache__": true,
+    "data/raw": true,          // hide heavy/raw data
+    "results": false           // keep results visible; set true to hide if you prefer
+  },
+  "search.exclude": {
+    "**/__pycache__": true,
+    "data/raw": true,
+    "results/**": false
+  },
+
+  // Python analysis tweaks
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.autoImportCompletions": true
+}
